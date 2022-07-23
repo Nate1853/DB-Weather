@@ -1,0 +1,161 @@
+import java.util.Properties;
+import java.sql.*;
+
+import de.hska.iwii.db1.weather.model.*;
+import de.hska.iwii.db1.weather.reader.*;
+
+/**
+ * Demo-Klasse fuer den Zugriff auf das Wetter der Stadt Karlsruhe.
+ */
+public class DemoWeather {
+
+	public static Connection getPostgreSQLConnection(String databaseUser, String databasePassword, String databaseName) throws ClassNotFoundException, SQLException {
+		// PostgreSQL
+		Class.forName("org.postgresql.Driver");
+
+		// 2. Verbinden mit Anmelde-Daten
+		Properties props = new Properties();
+		props.put("user", databaseUser);
+		props.put("password", databasePassword);
+		return DriverManager.getConnection("jdbc:postgresql://193.196.36.21:3690/" + databaseName, props);
+	}
+	public Connection startG10(Connection connection) {
+		try {
+			connection = DemoWeather.getPostgreSQLConnection("g10", "vmrMDpeVEU", "g10");
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return connection;
+	}
+
+	public void aufgabe2(Connection connection, WeatherSimulator reader){
+		try {
+			String[] cities = {"Karlsruhe", "Hamburg"};
+			Location[] locations;
+			for (int i = 0; i < cities.length; i++)
+			{
+				locations = reader.findLocation(cities[i]);
+
+				for (Location location: locations) {
+					System.out.println(location);
+					Weather weather = reader.readCurrentWeather(location.getId());
+					PreparedStatement stmt = connection.prepareStatement("BEGIN;" +
+							"INSERT INTO wetterdaten VALUES(?,?,?,?,?,?,?);" +
+							"INSERT INTO ortsinformationen VALUES(?,?,?,?,?);" +
+							"INSERT INTO keys VALUES(?,?);" +
+							"COMMIT;");
+
+					// wetterdaten
+					stmt.setFloat(1, weather.getId());
+					stmt.setString(2, weather.getWeatherStateName());
+					System.out.println("DATUM: " + weather.getApplicableDate());
+					stmt.setDate(3, new java.sql.Date(weather.getApplicableDate().getTime()));
+					stmt.setFloat(4, weather.getMinTemp());
+					stmt.setFloat(5, weather.getMaxTemp());
+					stmt.setInt(6, weather.getAirPressure());
+					stmt.setInt(7, weather.getHumidity());
+					// ortsinformation
+					stmt.setFloat(8, location.getId());
+					stmt.setString(9, location.getName());
+					stmt.setString(10, location.getLocationType().toString());
+					stmt.setFloat(11, location.getLattitude());
+					stmt.setFloat(12, location.getLongitude());
+					// keys
+					stmt.setFloat(13, weather.getId());
+					stmt.setFloat(14, location.getId());
+					stmt.execute();
+					stmt.close();
+
+					// 3. Auslesen des aktuellen Wetters an dem ersten gefundenen Ort.
+
+					if (weather != null) {
+						System.out.println(weather);
+					}
+				}
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+	}
+	public void aufgabe3(Connection connection){
+		try {
+			PreparedStatement stmt2 = connection.prepareStatement(
+					"SELECT * FROM ortsinformationen o "
+							+ "JOIN keys k ON o.id = k.idort "
+							+ "JOIN wetterdaten w ON k.idwetter = w.id;");
+			ResultSet rs = stmt2.executeQuery();
+
+			while (rs.next()) {
+				// Abfrage + Insert
+				PreparedStatement stmt3 = connection.prepareStatement("BEGIN;" +
+						"INSERT INTO ortundwetter VALUES(?,?,?,?,?,?);" +
+						"COMMIT;");
+
+				// wetterdaten
+				stmt3.setString(1, rs.getString("namecity"));
+				stmt3.setString(2, rs.getString("beschreibung"));
+				stmt3.setFloat(3, rs.getInt("mintemp")); //weather.getApplicableDate()
+				stmt3.setFloat(4, rs.getFloat("maxtemp"));
+				stmt3.setInt(5, rs.getInt("luftdruck"));
+				stmt3.setInt(6, rs.getInt("luftfeuchtigkeit"));
+				stmt3.addBatch();
+				stmt3.execute();
+				stmt3.close();
+			}
+
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+	}
+	public void aufgabe4(Connection connection){
+		// 4. Geben Sie alle Orte aus, an denen die Luftfeuchtigkeit
+		// zwischen 50 und 60 Prozent sowie die Temperatur über 10 Grad Celsius liegt.
+		try {
+			PreparedStatement stmt = connection.prepareStatement(
+					"SELECT * FROM ortundwetter "
+							+ "WHERE mintemp > 10 AND "
+							+ "luftfeuchtigkeit BETWEEN 40 AND 60;");
+			ResultSet rs = stmt.executeQuery();
+			while (rs.next()) {
+				String namecity = rs.getString("namecity");
+				String beschreibung = rs.getString("beschreibung");
+				float mintemp = rs.getFloat("mintemp");
+				float maxtemp = rs.getFloat("maxtemp");
+				int luftdruck = rs.getInt("luftdruck");
+				int luftfeuchtigkeit = rs.getInt("luftfeuchtigkeit");
+				System.out.println(namecity + ", " + beschreibung + ", " + mintemp +
+						", " + maxtemp + ", " + luftdruck + ", " + luftfeuchtigkeit);
+			}
+
+			stmt.close();
+
+
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+
+
+
+	}
+
+	public static void main(String[] args) {
+		/** Aufgabe 1: Erzeugt ein WeatherReader-Objekt fuer die komplette
+		Serverkommunikation. Fuer den Zugriff uber den
+		Proxy der Hochschule muss der zweite Konstruktur mit
+		den Proxy-Parametern verwendet werden.
+		 */
+ 		WeatherReader weatherReader = new WeatherReader();
+		 // Wir nutzen WEATHER SIMULATOR WEIL DIE SEITE DOWN IST
+		WeatherSimulator reader = new WeatherSimulator();
+		DemoWeather demoWeather = new DemoWeather();
+		Connection connection = demoWeather.startG10(null);
+		/** Aufgabe 2: Auslesen von Informationen ueber einen oder mehrere Orte.
+		Weitere Beispiele: Karlsruhe, Hamburg
+		 */
+		demoWeather.aufgabe2(connection, reader);
+		// Aufgabe 3:
+		demoWeather.aufgabe3(connection);
+		// Aufgabe 4:
+		demoWeather.aufgabe4(connection);
+	}
+}
